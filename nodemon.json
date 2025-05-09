@@ -1,0 +1,10 @@
+{
+  "watch": ["src"],
+  "ext": "ts",
+  "exec": "npm run build && npm run start:dev",
+  "ignore": [
+    "src/**/*.spec.ts",
+    "dist/",
+    "node_modules/"
+  ]
+}

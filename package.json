@@ -1,0 +1,49 @@
+{
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "nodemon src/app.ts",
+    "build": "tsc && shx cp -r src/templates dist/",
+    "clean": "rimraf dist",
+    "start:dev": "cross-env NODE_ENV=development node dist/app.js",
+    "start": "node dist/app.js",
+    "watch": "tsc --watch",
+    "prebuild": "npm run clean",
+    "docker:up": "docker-compose up -d redis"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "bull": "^4.16.5",
+    "chai": "^5.2.0",
+    "crypto-js": "^4.1.1",
+    "date-fns": "^2.30.0",
+    "express": "^5.1.0",
+    "handlebars": "^4.7.7",
+    "imapflow": "^1.0.186",
+    "ioredis": "^5.6.1",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^7.0.3",
+    "pdf-parse": "^1.1.1",
+    "sequelize": "^6.37.7",
+    "soap": "^0.45.0",
+    "telegraf": "^4.16.3",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.2",
+    "@types/express": "^5.0.1",
+    "@types/imapflow": "^1.0.21",
+    "@types/jest": "^29.5.14",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.15.14",
+    "@types/nodemailer": "^6.4.17",
+    "@types/pdf-parse": "^1.1.5",
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.10",
+    "rimraf": "^6.0.1",
+    "shx": "^0.4.0",
+    "typescript": "^5.8.3"
+  }
+}

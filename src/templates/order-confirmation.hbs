@@ -1,0 +1,16 @@
+// src/templates/order-confirmation.hbs
+
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h1 style="color: #2c3e50; text-align: center; margin-bottom: 25px;">Заказ #{{orderId}} подтверждён</h1>
+
+    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <h2 style="color: #2c3e50; margin-top: 0; font-size: 18px;">Маршрут:</h2>
+        <p><strong>Откуда:</strong> {{pickupAddress}}</p>
+        <p><strong>Куда:</strong> {{dropoffAddress}}</p>
+        <p><strong>Время подачи:</strong> {{formattedTime}}</p>
+    </div>
+
+    <p style="font-size: 14px; color: #7f8c8d; text-align: center;">
+        Спасибо за выбор нашего сервиса!
+    </p>
+</div>
