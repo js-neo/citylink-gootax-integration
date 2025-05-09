@@ -1,7 +1,7 @@
 // src/app.ts
 
 import express from 'express';
-import { initRedis, getRedisClient, closeRedis } from './config/redis.js';
+import { initRedis, getRedisClient, closeRedis, getRedisOptionsForBull } from './config/redis.js';
 import { logger } from './utils/logger.js';
 import { initEmailJobs } from './jobs/email-job.js';
 
@@ -69,7 +69,7 @@ async function initializeApp() {
         logger.info('Redis успешно подключен');
 
         const { initOrderQueue } = await import('./modules/api-client/queues.js');
-        initOrderQueue(redisClient.options);
+        initOrderQueue(getRedisOptionsForBull());
         logger.info('Очередь заказов инициализирована');
 
         const { initCRMIntegrations } = await import('./modules/crm-integration/index.js');

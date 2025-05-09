@@ -1,6 +1,6 @@
 // src/config/redis.ts
 
-import { Redis } from 'ioredis';
+import { Redis, RedisOptions } from 'ioredis';
 import { logger } from '../utils/logger.js';
 import { config } from './index.js';
 
@@ -17,18 +17,18 @@ export const initRedis = async (): Promise<Redis> => {
             throw new Error('Отсутствует конфигурация Redis');
         }
 
-        redisClient = new Redis({
+        const redisOptions: RedisOptions = {
             host: config.redis.host,
             port: config.redis.port,
             password: config.redis.password,
-            retryStrategy: (times) => {
+            retryStrategy: (times: number) => {
                 const delay = Math.min(times * 100, 5000);
                 logger.warn(`Повторное подключение к Redis через ${delay}мс`);
                 return delay;
-            },
-            maxRetriesPerRequest: 3,
-            connectTimeout: 10000
-        });
+            }
+        };
+
+        redisClient = new Redis(redisOptions);
 
         redisClient.on('connect', () => {
             isInitialized = true;
@@ -67,6 +67,12 @@ export const getRedisClient = (): Redis => {
     }
     return redisClient;
 };
+
+export const getRedisOptionsForBull = (): RedisOptions => ({
+    host: config.redis.host,
+    port: config.redis.port,
+    password: config.redis.password
+});
 
 export const closeRedis = async (): Promise<void> => {
     if (redisClient) {
