@@ -4,6 +4,7 @@ import { GootaxClient } from './gootax-client.js';
 import Bull from 'bull';
 import { logger } from '../../utils/logger.js';
 import type { RedisOptions } from 'ioredis';
+import { EnhancedError } from '../../utils/error-wrapper.js';
 
 interface OrderJobData {
     orderData: {
@@ -12,12 +13,17 @@ interface OrderJobData {
         client_id: string;
         phone: string;
         tariff_id: string;
-        time: Date;
+        time: string;
         options: string[];
         comment?: string;
     };
     attempt: number;
     timestamp: string;
+    source: string;
+    lastError?: {
+        message: string;
+        details?: Record<string, unknown>;
+    };
 }
 
 export let createOrderQueue: Bull.Queue<OrderJobData>;
@@ -33,15 +39,24 @@ export const initOrderQueue = (redisOptions: RedisOptions) => {
 
     createOrderQueue.process(async (job) => {
         try {
-            logger.info(`Обработка задания заказа ${job.id}`);
+            const orderData = {
+                ...job.data.orderData,
+                time: new Date(job.data.orderData.time)
+            };
             const client = new GootaxClient();
-            return await client.createOrder(job.data.orderData);
+            return await client.createOrder(orderData);
         } catch (error) {
-            logger.error('Ошибка обработки очереди:', {
-                jobId: job.id,
-                error: error instanceof Error ? error.message : error
+            const enhancedError = EnhancedError.from(error);
+
+            await job.update({
+                ...job.data,
+                lastError: {
+                    message: enhancedError.message,
+                    details: enhancedError.details
+                }
             });
-            throw error;
+
+            throw new EnhancedError(`[Job ${job.id}] ${enhancedError.message}`, enhancedError.details);
         }
     });
 
@@ -53,9 +68,9 @@ export const initOrderQueue = (redisOptions: RedisOptions) => {
     });
 
     createOrderQueue.on('failed', (job, error) => {
-        logger.error(`Ошибка обработки заказа для задания ${job.id}:`, {
-            error: error instanceof Error ? error.message : error,
-            jobData: job.data
+        logger.error(`Job ${job.id} failed`, {
+            error: error.message,
+            details: job.data.lastError?.details
         });
     });
 };

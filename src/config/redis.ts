@@ -13,6 +13,8 @@ export const initRedis = async (): Promise<Redis> => {
     }
 
     try {
+        logger.info('Конфигурация Redis:', config.redis);
+
         if (!config.redis.host || !config.redis.port) {
             throw new Error('Отсутствует конфигурация Redis');
         }
@@ -21,12 +23,19 @@ export const initRedis = async (): Promise<Redis> => {
             host: config.redis.host,
             port: config.redis.port,
             password: config.redis.password,
+            db: config.redis.db,
             retryStrategy: (times: number) => {
                 const delay = Math.min(times * 100, 5000);
                 logger.warn(`Повторное подключение к Redis через ${delay}мс`);
                 return delay;
-            }
+            },
+            connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT || '10000', 10),
+            maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES || '3', 10)
         };
+
+        if (process.env.REDIS_TLS === 'true') {
+            redisOptions.tls = {};
+        }
 
         redisClient = new Redis(redisOptions);
 
@@ -53,6 +62,7 @@ export const initRedis = async (): Promise<Redis> => {
         });
 
         await redisClient.ping();
+        logger.info('Redis успешно подключен');
 
         return redisClient;
     } catch (error) {
@@ -71,12 +81,23 @@ export const getRedisClient = (): Redis => {
 export const getRedisOptionsForBull = (): RedisOptions => ({
     host: config.redis.host,
     port: config.redis.port,
-    password: config.redis.password
+    password: config.redis.password,
+    db: config.redis.db,
+    ...(process.env.REDIS_TLS === 'true' ? { tls: {} } : {})
 });
 
 export const closeRedis = async (): Promise<void> => {
     if (redisClient) {
-        await redisClient.quit();
-        isInitialized = false;
+        try {
+            await redisClient.quit();
+            logger.info('Соединение с Redis успешно закрыто');
+        } catch (error) {
+            logger.error('Ошибка при закрытии соединения с Redis:', error);
+        } finally {
+            isInitialized = false;
+        }
     }
 };
+
+export const isRedisInitialized = (): boolean =>
+    isInitialized && redisClient?.status === 'ready';

@@ -1,47 +1,72 @@
 // src/routes/api.ts
+
 import express from 'express';
-import { OrderProcessor } from '../services/order-processor.js';
-import { logger } from '../utils/logger.js';
-import { HotelOrderRequest } from '../dto/order.dto.js';
+import {OrderProcessor} from '../services/order-processor.js';
+import {logger} from '../utils/logger.js';
+import {HotelOrderRequest} from '../dto/order.dto.js';
 
 const router = express.Router();
 const orderProcessor = OrderProcessor.getInstance();
 
-async function parseManualInput(rawData: any): Promise<HotelOrderRequest> {
+function parseDate(dateString: string | undefined): Date {
+    if (!dateString) return new Date();
+
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+        throw new Error('Неверный формат даты. Используйте формат: ГГГГ-ММ-ДДЧЧ:мм:сс');
+    }
+    return date;
+}
+
+function getStatusCode(error: unknown): number {
+    if (!(error instanceof Error)) return 500;
+
+    const clientErrors = [
+        'Необходимо',
+        'Не указан',
+        'Некорректный формат',
+        'Неверный формат',
+        'Отсутствует обязательное поле'
+    ];
+
+    return clientErrors.some(phrase => error.message.includes(phrase))
+        ? 400
+        : 500;
+}
+
+async function prepareOrderData(rawData: any): Promise<HotelOrderRequest> {
     try {
-        logger.info('Parsing manual input', { rawData });
+        logger.info('Обработка входящих данных', {input: rawData});
 
         if (!rawData.addresses || !Array.isArray(rawData.addresses) || rawData.addresses.length < 2) {
-            throw new Error('Необходимо указать как минимум 2 адреса (откуда и куда)');
+            throw new Error('Необходимо указать минимум 2 адреса: отправления и назначения');
         }
 
-        if (!rawData.phone) {
-            throw new Error('Не указан номер телефона');
+        if (!rawData.phone || !/^[\d+]{11,15}$/.test(rawData.phone)) {
+            throw new Error('Неверный формат номера телефона');
         }
 
         const orderData: HotelOrderRequest = {
             rawAddresses: [rawData.addresses[0], rawData.addresses[1]] as [string, string],
             client_id: rawData.client_id || `manual-${Date.now()}`,
-            phone: rawData.phone,
+            phone: rawData.phone.replace(/[^\d+]/g, ''),
             vehicleType: rawData.vehicle_type === 'minivan' ? 'minivan' : 'sedan',
-            time: rawData.time ? new Date(rawData.time) : new Date(),
-            options: rawData.options || [],
-            comment: rawData.comment || ''
+            time: parseDate(rawData.time),
+            options: Array.isArray(rawData.options) ? rawData.options : [],
+            comment: rawData.comment?.toString() || ''
         };
 
-        if (typeof rawData.time === 'string') {
-            orderData.time = new Date(rawData.time);
-            if (isNaN(orderData.time.getTime())) {
-                throw new Error('Некорректный формат даты');
+        logger.info('Данные успешно обработаны', {
+            order: {
+                ...orderData,
+                time: orderData.time.toISOString()
             }
-        }
-
-        logger.info('Manual input parsed successfully', { orderData });
+        });
         return orderData;
     } catch (error) {
-        logger.error('Failed to parse manual input', {
+        logger.error('Ошибка обработки данных', {
             error: error instanceof Error ? error.message : String(error),
-            rawData
+            input: rawData
         });
         throw error;
     }
@@ -49,23 +74,15 @@ async function parseManualInput(rawData: any): Promise<HotelOrderRequest> {
 
 router.post('/orders', async (req, res) => {
     try {
-        const rawData = req.body;
-        const parsedData = await parseManualInput(rawData);
+        const parsedData = await prepareOrderData(req.body);
         const result = await orderProcessor.processOrder(parsedData);
-
-        res.json({
-            success: true,
-            order_id: result.order_id,
-            status: result.status,
-            driver_info: result.driver_info
-        });
+        res.json({ success: true, ...result });
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Неизвестная ошибка';
-        logger.error('Order processing failed', { error: errorMessage });
-
         res.status(500).json({
             success: false,
-            error: errorMessage
+            error: errorMessage,
+            timestamp: new Date().toISOString()
         });
     }
 });
@@ -75,7 +92,7 @@ router.post('/opera-webhook', async (req, res) => {
         const orderData = req.body;
 
         if (!orderData.booking_id) {
-            throw new Error('Отсутствует booking_id в данных запроса');
+            throw new Error('Отсутствует идентификатор бронирования');
         }
 
         const result = await orderProcessor.processTransfer(orderData.booking_id);
@@ -83,15 +100,18 @@ router.post('/opera-webhook', async (req, res) => {
         res.status(200).json({
             success: true,
             order_id: result.order_id,
-            status: result.status
+            status: result.status,
+            timestamp: new Date().toISOString()
         });
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
-        logger.error('Opera webhook processing failed', { error: errorMessage });
+        const statusCode = getStatusCode(error);
+        const errorMessage = error instanceof Error ? error.message : 'Внутренняя ошибка сервера';
+        logger.error('Ошибка обработки вебхука Opera', {error: errorMessage});
 
-        res.status(500).json({
+        res.status(statusCode).json({
             success: false,
-            error: errorMessage
+            error: errorMessage,
+            timestamp: new Date().toISOString()
         });
     }
 });
@@ -104,7 +124,11 @@ router.get('/orders/:id', async (req, res) => {
             updated_at: new Date().toISOString()
         });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to get order status' });
+        const statusCode = getStatusCode(error);
+        res.status(statusCode).json({
+            error: 'Ошибка получения статуса заказа',
+            timestamp: new Date().toISOString()
+        });
     }
 });
 

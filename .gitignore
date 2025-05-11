@@ -1,6 +1,9 @@
+.idea
+logs
 node_modules
 dist
 
 .env
 project_contents.txt
 script_debug.log
+dump.rdb

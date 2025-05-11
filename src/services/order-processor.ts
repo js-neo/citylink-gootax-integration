@@ -1,13 +1,16 @@
-import { HotelOrderRequest, GootaxOrderResponse } from '../dto/order.dto.js';
-import { Geocoder } from '../modules/data-parser/geocoder.js';
-import { OrderValidator } from '../modules/validation/index.js';
-import { GootaxClient } from '../modules/api-client/index.js';
-import { logger } from '../utils/logger.js';
-import { createOrderQueue } from '../modules/api-client/queues.js';
-import { sendOrderEmail } from '../modules/notifications/email.js';
-import { SMSNotifier } from '../modules/notifications/sms.js';
-import { TransferService, BookingService } from '../modules/crm-integration/index.js';
-import { OperaTransfer } from '../modules/crm-integration/index.js';
+// src/services/order-processor.ts
+
+import {HotelOrderRequest, GootaxOrderResponse} from '../dto/order.dto.js';
+import {Geocoder} from '../modules/data-parser/geocoder.js';
+import {OrderValidator} from '../modules/validation/index.js';
+import {GootaxClient} from '../modules/api-client/index.js';
+import {logger} from '../utils/logger.js';
+import {createOrderQueue} from '../modules/api-client/queues.js';
+import {sendOrderEmail} from '../modules/notifications/email.js';
+import {SMSNotifier} from '../modules/notifications/sms.js';
+import {TransferService, BookingService} from '../modules/crm-integration/index.js';
+import {OperaTransfer} from '../modules/crm-integration/index.js';
+import {EnhancedError} from "../utils/error-wrapper.js";
 
 export interface ExtendedHotelOrderRequest extends HotelOrderRequest {
     bookingId?: string;
@@ -29,7 +32,7 @@ export class OrderProcessor {
 
     private constructor() {
         if (!process.env.OPERA_API_URL || !process.env.OPERA_API_TOKEN) {
-            logger.warn('CRM integration will be limited - Opera PMS credentials not configured');
+            logger.warn('Интеграция с CRM будет ограничена - не настроены учетные данные Opera PMS');
         }
 
         this.transferService = new TransferService(
@@ -51,7 +54,7 @@ export class OrderProcessor {
 
     async processOrder(orderData: ExtendedHotelOrderRequest): Promise<GootaxOrderResponse> {
         try {
-            logger.info('Processing order', { orderId: orderData.client_id });
+            logger.info('Обработка заказа', {orderId: orderData.client_id});
 
             const [pickup, dropoff] = await Promise.all([
                 this.geocoder.geocode(orderData.rawAddresses[0]),
@@ -66,7 +69,7 @@ export class OrderProcessor {
             });
 
             if (!validation.isValid) {
-                throw new Error(`Order validation failed: ${validation.errors.join(', ')}`);
+                throw new Error(`Ошибка валидации заказа: ${validation.errors.join(', ')}`);
             }
 
             const gootaxRequest = this.prepareGootaxRequest(orderData, pickup, dropoff);
@@ -74,32 +77,29 @@ export class OrderProcessor {
 
             if (orderData.bookingId) {
                 await this.updateCrmStatus(orderData.bookingId, result.order_id)
-                    .catch(error => logger.error('CRM update failed', { error }));
+                    .catch(error => logger.error('Ошибка обновления CRM', {error}));
             }
 
             this.sendNotifications(orderData, result)
-                .catch(error => logger.error('Notification failed', { error }));
+                .catch(error => logger.error('Ошибка отправки уведомлений', {error}));
 
-            logger.info('Order processed successfully', { orderId: result.order_id });
+            logger.info('Заказ успешно обработан', {orderId: result.order_id});
             return result;
         } catch (error) {
-            logger.error('Order processing failed', {
-                error: error instanceof Error ? error.message : String(error),
-                orderData
-            });
-            throw error;
+            logger.error(`Ошибка обработки заказа: ${error instanceof Error ? error.message : String(error)}`);
+            throw EnhancedError.from(error);
         }
     }
 
     async processTransfer(transferId: string): Promise<GootaxOrderResponse> {
         try {
-            logger.info('Processing transfer', { transferId });
+            logger.info('Обработка трансфера', {transferId});
 
             const transfer = await this.getTransferDetails(transferId);
             const orderData = this.prepareOrderFromTransfer(transfer);
             return this.processOrder(orderData);
         } catch (error) {
-            logger.error('Transfer processing failed', {
+            logger.error('Ошибка обработки трансфера', {
                 transferId,
                 error: error instanceof Error ? error.message : String(error)
             });
@@ -109,12 +109,12 @@ export class OrderProcessor {
 
     async processSms(text: string, senderPhone: string): Promise<GootaxOrderResponse> {
         try {
-            logger.info('Processing SMS order', { senderPhone });
+            logger.info('Обработка SMS заказа', {senderPhone});
 
             const orderData = this.parseSmsOrder(text, senderPhone);
             return this.processOrder(orderData);
         } catch (error) {
-            logger.error('SMS order processing failed', {
+            logger.error('Ошибка обработки SMS заказа', {
                 text,
                 senderPhone,
                 error: error instanceof Error ? error.message : String(error)
@@ -130,11 +130,11 @@ export class OrderProcessor {
 
             const transfer = bookings.find(t => t.id === transferId);
             if (!transfer) {
-                throw new Error(`Transfer ${transferId} not found`);
+                throw new Error(`Трансфер ${transferId} не найден`);
             }
             return transfer;
         } catch (error) {
-            logger.error('Failed to get transfer details', { transferId });
+            logger.error('Ошибка получения деталей трансфера', {transferId});
             throw error;
         }
     }
@@ -183,10 +183,16 @@ export class OrderProcessor {
     }
 
     private async processViaQueue(request: any): Promise<GootaxOrderResponse> {
+        const queueData = {
+            ...request,
+            time: request.time.toISOString()
+        };
+
         const job = await createOrderQueue.add({
-            orderData: request,
+            orderData: queueData,
             attempt: 1,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            source: 'order-processor'
         });
         return job.finished();
     }
@@ -195,15 +201,15 @@ export class OrderProcessor {
         try {
             await this.transferService.createBookingTransfer(bookingId, {
                 type: 'OTHER',
-                pickupAddress: 'Updated by system',
-                dropoffAddress: 'Updated by system',
+                pickupAddress: 'Обновлено системой',
+                dropoffAddress: 'Обновлено системой',
                 scheduledTime: new Date().toISOString(),
                 vehicleType: 'STANDARD',
-                notes: `Taxi order created: ${orderId} (${new Date().toLocaleString()})`
+                notes: `Создан заказ такси: ${orderId} (${new Date().toLocaleString()})`
             });
-            logger.info('CRM status updated', { bookingId, orderId });
+            logger.info('Статус CRM обновлен', {bookingId, orderId});
         } catch (error) {
-            logger.error('Failed to update CRM status', {
+            logger.error('Ошибка обновления статуса CRM', {
                 bookingId,
                 error: error instanceof Error ? error.message : String(error)
             });
@@ -229,9 +235,9 @@ export class OrderProcessor {
                     `Водитель: ${result.driver_info?.name || 'будет назначен'}`
                 )
             ]);
-            logger.info('Notifications sent', { orderId: result.order_id });
+            logger.info('Уведомления отправлены', {orderId: result.order_id});
         } catch (error) {
-            logger.error('Failed to send notifications', {
+            logger.error('Ошибка отправки уведомлений', {
                 orderId: result.order_id,
                 error: error instanceof Error ? error.message : String(error)
             });
@@ -245,7 +251,7 @@ export class OrderProcessor {
         const dateMatch = text.match(/(\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s+(\d{1,2}:\d{2})/);
 
         if (!addressMatch || addressMatch.length < 2) {
-            throw new Error('Could not extract addresses from SMS');
+            throw new Error('Не удалось извлечь адреса из SMS');
         }
 
         return {
@@ -268,9 +274,12 @@ export class OrderProcessor {
 
     private mapVehicleType(crmType?: string): 'sedan' | 'minivan' {
         switch (crmType?.toUpperCase()) {
-            case 'BUSINESS': return 'sedan';
-            case 'MINIVAN': return 'minivan';
-            default: return 'sedan';
+            case 'BUSINESS':
+                return 'sedan';
+            case 'MINIVAN':
+                return 'minivan';
+            default:
+                return 'sedan';
         }
     }
 
@@ -291,9 +300,12 @@ export class OrderProcessor {
 
     private getTariffId(vehicleType: 'sedan' | 'minivan'): string {
         switch (vehicleType) {
-            case 'sedan': return process.env.GOOTAX_SEDAN_TARIFF || '39741';
-            case 'minivan': return process.env.GOOTAX_MINIVAN_TARIFF || '39742';
-            default: return process.env.GOOTAX_SEDAN_TARIFF || '39741';
+            case 'sedan':
+                return process.env.GOOTAX_SEDAN_TARIFF || '39741';
+            case 'minivan':
+                return process.env.GOOTAX_MINIVAN_TARIFF || '39742';
+            default:
+                return process.env.GOOTAX_SEDAN_TARIFF || '39741';
         }
     }
 }

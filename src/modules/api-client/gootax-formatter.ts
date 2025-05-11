@@ -25,6 +25,9 @@ export class GootaxRequestFormatter {
 
     constructor() {
         this.secret = config.gootax.secret;
+        if (!this.secret) {
+            throw new Error('GOOTAX_SECRET не настроен');
+        }
     }
 
     formatAddress(
@@ -67,6 +70,10 @@ export class GootaxRequestFormatter {
     }
 
     formatDateTime(date: Date): string {
+        if (!(date instanceof Date) || isNaN(date.getTime())) {
+            throw new Error('Некорректный объект Date');
+        }
+
         const pad = (n: number) => n.toString().padStart(2, '0');
         return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
     }
@@ -83,6 +90,10 @@ export class GootaxRequestFormatter {
             comment?: string;
         }
     ): Promise<GootaxOrderPayload> {
+        if (!(orderData.time instanceof Date)) {
+            throw new Error('Поле time должно быть объектом Date');
+        }
+
         const basePayload = {
             address: this.formatAddress(orderData.pickup, orderData.dropoff),
             device_token: "citylink_auto",

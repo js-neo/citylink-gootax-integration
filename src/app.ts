@@ -15,6 +15,7 @@ app.get('/health', async (_req, res) => {
     try {
         const redisClient = getRedisClient();
         await redisClient.ping();
+        logger.info(`Redis версия: ${await redisClient.info()}`);
 
         res.status(200).json({
             status: 'healthy',
@@ -66,6 +67,8 @@ async function initializeDependencies() {
 async function initializeApp() {
     try {
         const redisClient = await initRedis();
+        await redisClient.ping();
+        logger.info(`Redis версия: ${await redisClient.info()}`);
         logger.info('Redis успешно подключен');
 
         const { initOrderQueue } = await import('./modules/api-client/queues.js');
